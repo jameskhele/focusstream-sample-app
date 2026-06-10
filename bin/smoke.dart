@@ -14,10 +14,18 @@ int _fails = 0;
 void main(List<String> args) async {
   final env = Platform.environment;
   
-  // Try reading from gitignored .env or env vars
-  final apiKey = env['FIREBASE_API_KEY'] ?? 'AIzaSyAtJLCMoEtw3lFUNa4agcuaKA9kSkXOuaA';
-  final email = env['TEST_EMAIL'] ?? 'smoketest@dartstream.test';
-  final password = env['TEST_PASSWORD'] ?? 'smoke123';
+  final apiKey = env['FIREBASE_API_KEY'];
+  final email = env['TEST_EMAIL'];
+  final password = env['TEST_PASSWORD'];
+
+  if (apiKey == null || apiKey.isEmpty) {
+    stderr.writeln('FATAL: FIREBASE_API_KEY not set. See .env.example.');
+    exit(2);
+  }
+  if (email == null || email.isEmpty || password == null || password.isEmpty) {
+    stderr.writeln('FATAL: TEST_EMAIL / TEST_PASSWORD not set. See .env.example.');
+    exit(2);
+  }
 
   final authHost = env['API_AUTH'] ?? 'https://dev-apiauth.dartstream.io';
   final platformHost = env['API_PLATFORM'] ?? 'https://dev-apiplatform.dartstream.io';

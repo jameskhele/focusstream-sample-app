@@ -1,9 +1,6 @@
 /// Hosts and Firebase configuration for the FocusStream sample application.
 class AppConfig {
-  static const firebaseApiKey = String.fromEnvironment(
-    'FIREBASE_API_KEY',
-    defaultValue: 'AIzaSyAtJLCMoEtw3lFUNa4agcuaKA9kSkXOuaA',
-  );
+  static const firebaseApiKey = String.fromEnvironment('FIREBASE_API_KEY');
 
   static bool get hasFirebaseApiKey => firebaseApiKey.isNotEmpty;
 
