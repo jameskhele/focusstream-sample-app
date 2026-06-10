@@ -17,15 +17,22 @@ It was built as an independent, third sample application, following architectura
 
 ---
 
+## Prerequisites
+
+* **Supported toolchain floor**: Flutter 3.44.0 / Dart 3.12.0 (verified building — `flutter build web` + `dart analyze` both green on this exact pair). The client requires Dart >=3.12.0, so this is a hard floor, not a suggestion: on an older toolchain, `pub get` fails fast with a version-solve message (e.g. Dart 3.11.4 → "requires SDK version ^3.12.0"). That is a toolchain mismatch, not a code defect.
+* **Chrome browser** (client runs on `-d chrome` / web-server)
+
+---
+
 ## Configuration
 
 The app reads environment variables from your environment or `.env` files. By default, it is configured to talk to the live `dartstream-prod` Firebase project and `dev-api*.dartstream.io` subdomains.
 
 | Variable | Default Value | Purpose |
 | --- | --- | --- |
-| `FIREBASE_API_KEY` | `AIzaSyAtJLCMoEtw3lFUNa4agcuaKA9kSkXOuaA` | Web API key for authentication |
-| `TEST_EMAIL` | `smoketest@dartstream.test` | Default testing user |
-| `TEST_PASSWORD` | `smoke123` | Default testing password |
+| `FIREBASE_API_KEY` | `injected at runtime (see below)` | Web API key for authentication |
+| `TEST_EMAIL` | `you@example.com` | Default testing user |
+| `TEST_PASSWORD` | `change-me` | Default testing password |
 
 ---
 
