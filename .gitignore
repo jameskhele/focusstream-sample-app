@@ -1,0 +1,26 @@
+# Dependency directories
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+
+# Flutter/Web build artifacts
+build/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.development
+
+# IntelliJ IDE files
+.idea/
+*.iml
+
+# VS Code files
+.vscode/
+
+# Windows files
+Thumbs.db
+ehthumbs.db
+Desktop.ini

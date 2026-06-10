@@ -5,7 +5,7 @@ import '../models/workspace_data.dart';
 class CloudSaveService {
   static const String slotKey = 'focusstream';
   static const String projectId = 'focusstream';
-  static const String environmentId = 'production';
+  static const String environmentId = 'development';
 
   final DartstreamApi api;
 

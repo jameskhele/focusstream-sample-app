@@ -17,7 +17,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // DartStream scope configuration
   static const _slotKey = 'focusstream';
   static const _projectId = 'focusstream';
-  static const _environmentId = 'production';
+  static const _environmentId = 'development';
 
   late CloudSaveService _saveService;
   WorkspaceData _workspace = WorkspaceData.empty();
@@ -687,7 +687,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_liveFeatureFlags.isEmpty) return const Text('No active flags', style: TextStyle(fontSize: 12));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: _liveFeatureFlags.map((f) => Text('• ${f.toString()}', style: const TextStyle(fontSize: 11))).toList(),
+      children: _liveFeatureFlags.map((f) {
+        if (f is Map) {
+          final key = f['key'] ?? f['flag_key'] ?? f['flagKey'] ?? 'unknown';
+          final enabled = f['enabled'] ?? f['value'] ?? false;
+          return Text('• $key: $enabled', style: const TextStyle(fontSize: 11));
+        }
+        return Text('• ${f.toString()}', style: const TextStyle(fontSize: 11));
+      }).toList(),
     );
   }
 

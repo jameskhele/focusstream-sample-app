@@ -92,7 +92,7 @@ void main(List<String> args) async {
 
   final expQuery = 'userId=${Uri.encodeQueryComponent(userId!)}'
       '&tenantId=${Uri.encodeQueryComponent(tenantId!)}'
-      '&projectId=focusstream&environmentId=production';
+      '&projectId=focusstream&environmentId=development';
 
   await _step('GET  /api/v1/experience/profiles/me', () async {
     return http.get(
