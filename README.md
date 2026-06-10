@@ -2,7 +2,7 @@
 
 FocusStream is a premium business-themed SaaS task and productivity dashboard. It serves as a customer-facing showcase for the **DartStream SaaS** product suite, demonstrating how to integrate authentication, feature flags, profile details, inventory (unlocked workspace assets), cloud-save snapshots, reactive event logging, and database explorer flows.
 
-It was built as an independent, third sample application, following architectural references from Brian's and Sharjil's implementations, but with a different approach (Business/SaaS instead of Gaming/RPG).
+It is designed as a standalone sample application implementing a business/SaaS workflow (as an alternative to the gaming/RPG reference apps).
 
 ---
 
@@ -107,7 +107,7 @@ flutter run -d chrome --web-port=3000
 
 ## How Auth Works (and why)
 
-FocusStream follows the same REST-based authentication flow that Brian and Sharjil established:
+FocusStream implements a secure, browser-safe REST-based authentication flow:
 1. The client authenticates against **Firebase Identity Toolkit** with the project's public **Web API Key** and obtains a Firebase **ID token**.
 2. It sends that token (`Authorization: Bearer <idToken>`) to the DartStream backend, which verifies the token via the server-side admin SDK and bootstraps the user/tenant session.
 
