@@ -102,3 +102,21 @@ flutter run -d chrome --web-port=3000
 * **Workspace Kanban Board**: Dynamically auto-saves the entire board layout (tasks, project filters) as a cloud save snapshot under slot key `focusstream`.
 * **Pomodoro Timer**: Completing a timer session updates lifetime statistics, logs a `focus.session.completed` reactive event, and autosaves the state.
 * **Live Explorer**: Side rail display showing live feature flags, profiles details, user sessions, database entries, and channels.
+
+---
+
+## How Auth Works (and why)
+
+FocusStream follows the same REST-based authentication flow that Brian and Sharjil established:
+1. The client authenticates against **Firebase Identity Toolkit** with the project's public **Web API Key** and obtains a Firebase **ID token**.
+2. It sends that token (`Authorization: Bearer <idToken>`) to the DartStream backend, which verifies the token via the server-side admin SDK and bootstraps the user/tenant session.
+
+This approach is browser-safe because it avoids shipping privileged service-account credentials in the client code.
+
+---
+
+## Verified End-to-End (live `dartstream-prod`, 2026-06-10)
+
+* **Smoke CLI**: 10 / 10 PASS across all five services (Auth, Platform, Experience, Reactive, Persistence).
+* **Workspace Synchronization**: Verified that adding, moving, and completing tasks correctly updates the cloud save snapshot state and fires reactive event logs to the server.
+
