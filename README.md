@@ -9,8 +9,8 @@ It is designed as a standalone sample application implementing a business/SaaS w
 ## Project Artifacts
 
 1. **`bin/smoke.dart`** — A headless Dart CLI that executes the full Dev API contract suite (10/10 endpoints) and prints `PASS/FAIL`. Run this first to confirm connectivity.
-2. **`lib/api/`** — Low-level REST API clients for both Firebase Auth (Identity Toolkit) and DartStream endpoints.
-3. **`lib/state/session.dart`** — Session coordinator managing token lifecycles and API setup.
+2. **`pubspec.yaml`** — Adds the official `dartstream_client` dependency instead of custom REST API layers.
+3. **`lib/state/session.dart`** — Session coordinator managing token lifecycles and `DartStreamClient` session state.
 4. **`lib/models/workspace_data.dart`** — Structured workspace models representing Kanban board task layouts, Pomodoro timers, and theme details.
 5. **`lib/services/cloud_save_service.dart`** — Debounced cloud save snapshot controller under slot key `focusstream`.
 6. **`lib/screens/`** — Premium dark-themed user interfaces for authentication and the core SaaS productivity dashboard.
@@ -41,11 +41,10 @@ The app reads environment variables from your environment or `.env` files. By de
 To verify dev-api endpoint connectivity, open a terminal in this directory and run:
 
 ```bash
-dart pub get
 dart run bin/smoke.dart
 ```
 
-This will run all 10 E2E checks and print a summary:
+This will run all E2E SDK checks and print a summary:
 ```
 == FocusStream E2E smoke ==
   auth        : https://dev-apiauth.dartstream.io
@@ -107,9 +106,9 @@ flutter run -d chrome --web-port=3000
 
 ## How Auth Works (and why)
 
-FocusStream implements a secure, browser-safe REST-based authentication flow:
-1. The client authenticates against **Firebase Identity Toolkit** with the project's public **Web API Key** and obtains a Firebase **ID token**.
-2. It sends that token (`Authorization: Bearer <idToken>`) to the DartStream backend, which verifies the token via the server-side admin SDK and bootstraps the user/tenant session.
+FocusStream implements a secure, browser-safe authentication flow using the official `dartstream_client` SDK:
+1. The client authenticates against **Firebase Identity Toolkit** with the project's public **Web API Key** and obtains a Firebase **ID token** using `client.auth.signInWithEmailPassword` (or sign up).
+2. It exchanges that token with the DartStream SaaS backend using `client.auth.onboardFirebaseSession` to securely bootstrap the user/tenant session.
 
 This approach is browser-safe because it avoids shipping privileged service-account credentials in the client code.
 
