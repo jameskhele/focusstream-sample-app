@@ -118,3 +118,13 @@ This approach is browser-safe because it avoids shipping privileged service-acco
 * **Smoke CLI**: 10 / 10 PASS across all five services (Auth, Platform, Experience, Reactive, Persistence).
 * **Workspace Synchronization**: Verified that adding, moving, and completing tasks correctly updates the cloud save snapshot state and fires reactive event logs to the server.
 
+---
+
+## Application UI & Interaction Preview
+
+* **Dashboard Overview**: A premium dark-themed UI displaying workspace tasks, Pomodoro timers, and live SaaS integrations.
+  ![FocusStream Dashboard](doc/dashboard_preview.png)
+  
+* **Interaction Flow Video**: A captured recording of the Firebase onboarding and sign-up flow executing against the live backend services.
+  ![Auth Flow Walkthrough](doc/auth_flow_preview.webp)
+
