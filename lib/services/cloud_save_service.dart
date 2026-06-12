@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import '../api/dartstream.dart';
+import 'package:dartstream_client/dartstream_client.dart';
 import '../models/workspace_data.dart';
 
 class CloudSaveService {
@@ -7,21 +7,23 @@ class CloudSaveService {
   static const String projectId = 'focusstream';
   static const String environmentId = 'development';
 
-  final DartstreamApi api;
+  final DartStreamClient client;
+  final DartStreamSession session;
 
-  CloudSaveService(this.api);
+  CloudSaveService(this.client, this.session);
 
   Future<WorkspaceData?> loadWorkspace({
     required String userId,
     required String tenantId,
   }) async {
     debugPrint('CloudSaveService.loadWorkspace slotKey=$slotKey');
-    final snapshot = await api.loadSnapshot(
-      userId: userId,
-      tenantId: tenantId,
+    final snapshot = await client.experience.loadCloudSave(
+      session,
+      scope: const DartStreamScope(
+        projectId: projectId,
+        environmentId: environmentId,
+      ),
       slotKey: slotKey,
-      projectId: projectId,
-      environmentId: environmentId,
     );
 
     if (snapshot == null) {
@@ -50,13 +52,14 @@ class CloudSaveService {
     required WorkspaceData workspace,
   }) async {
     debugPrint('CloudSaveService.saveWorkspace slotKey=$slotKey');
-    final resp = await api.saveSnapshot(
-      userId: userId,
-      tenantId: tenantId,
+    final resp = await client.experience.saveCloudSave(
+      session,
+      scope: const DartStreamScope(
+        projectId: projectId,
+        environmentId: environmentId,
+      ),
       slotKey: slotKey,
       payload: workspace.toJson(),
-      projectId: projectId,
-      environmentId: environmentId,
     );
     debugPrint('CloudSaveService.saveWorkspace response status: $resp');
   }

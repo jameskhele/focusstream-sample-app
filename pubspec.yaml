@@ -13,6 +13,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   http: ^1.2.2
+  dartstream_client: ^0.0.1
 
 dev_dependencies:
   flutter_test:

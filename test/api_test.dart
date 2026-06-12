@@ -2,13 +2,13 @@ import 'dart:convert';
 import 'package:test/test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:focusstream_app/api/dartstream.dart';
+import 'package:dartstream_client/dartstream_client.dart';
 
 void main() {
-  group('DartstreamApi Client Tests', () {
+  group('DartStreamClient Tests', () {
     const idToken = 'mock-id-token';
 
-    test('signup success (200)', () async {
+    test('onboardFirebaseIdToken success (200)', () async {
       final mockClient = MockClient((request) async {
         expect(request.url.path, '/api/v1/auth/signup');
         expect(request.method, 'POST');
@@ -23,15 +23,16 @@ void main() {
         );
       });
 
-      await http.runWithClient(() async {
-        final api = DartstreamApi(idToken: idToken);
-        final result = await api.signup();
-        expect(result.userId, 'test-user-123');
-        expect(result.tenantId, 'test-tenant-456');
-      }, () => mockClient);
+      final client = DartStreamClient(
+        config: DartStreamConfig.dev(firebaseApiKey: 'mock-firebase-key'),
+        httpClient: mockClient,
+      );
+      final session = await client.auth.onboardFirebaseIdToken(idToken);
+      expect(session.userId, 'test-user-123');
+      expect(session.tenantId, 'test-tenant-456');
     });
 
-    test('signup 409 conflict fallback to login', () async {
+    test('onboardFirebaseIdToken 409 conflict fallback to login', () async {
       int callCount = 0;
       final mockClient = MockClient((request) async {
         callCount++;
@@ -53,33 +54,42 @@ void main() {
         }
       });
 
-      await http.runWithClient(() async {
-        final api = DartstreamApi(idToken: idToken);
-        final result = await api.signup();
-        expect(result.userId, 'test-user-123');
-        expect(result.tenantId, 'test-tenant-456');
-        expect(callCount, 2);
-      }, () => mockClient);
+      final client = DartStreamClient(
+        config: DartStreamConfig.dev(firebaseApiKey: 'mock-firebase-key'),
+        httpClient: mockClient,
+      );
+      final session = await client.auth.onboardFirebaseIdToken(idToken);
+      expect(session.userId, 'test-user-123');
+      expect(session.tenantId, 'test-tenant-456');
+      expect(callCount, 2);
     });
 
-    test('loadSnapshot returns null on 404', () async {
+    test('loadCloudSave returns null on 404', () async {
       final mockClient = MockClient((request) async {
         expect(request.url.path, '/api/v1/experience/cloud-save/snapshot');
         expect(request.method, 'GET');
         return http.Response('Not Found', 404);
       });
 
-      await http.runWithClient(() async {
-        final api = DartstreamApi(idToken: idToken);
-        final result = await api.loadSnapshot(
-          userId: 'user',
-          tenantId: 'tenant',
-          slotKey: 'slot',
+      final client = DartStreamClient(
+        config: DartStreamConfig.dev(firebaseApiKey: 'mock-firebase-key'),
+        httpClient: mockClient,
+      );
+      final session = const DartStreamSession(
+        idToken: idToken,
+        userId: 'user',
+        tenantId: 'tenant',
+        raw: {},
+      );
+      final result = await client.experience.loadCloudSave(
+        session,
+        scope: const DartStreamScope(
           projectId: 'project',
           environmentId: 'development',
-        );
-        expect(result, isNull);
-      }, () => mockClient);
+        ),
+        slotKey: 'slot',
+      );
+      expect(result, isNull);
     });
   });
 }

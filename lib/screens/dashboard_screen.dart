@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../api/dartstream.dart';
+import 'package:dartstream_client/dartstream_client.dart';
 import '../models/workspace_data.dart';
 import '../services/cloud_save_service.dart';
 import '../state/session.dart';
@@ -38,14 +38,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _timerRunning = false;
   String _timerMode = 'Focus';
 
-  DartstreamApi get _api => widget.session.api!;
+  DartStreamClient get _client => widget.session.client!;
+  DartStreamSession get _sdkSession => widget.session.sdkSession!;
   String get _userId => widget.session.userId!;
   String get _tenantId => widget.session.tenantId!;
 
   @override
   void initState() {
     super.initState();
-    _saveService = CloudSaveService(_api);
+    _saveService = CloudSaveService(_client, _sdkSession);
     _bootstrap();
   }
 
@@ -67,28 +68,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final results = await Future.wait([
         _saveService.loadWorkspace(userId: _userId, tenantId: _tenantId),
-        _api.profile(userId: _userId, tenantId: _tenantId, projectId: _projectId, environmentId: _environmentId),
-        _api.featureFlags(tenantId: _tenantId),
-        _api.inventory(userId: _userId, tenantId: _tenantId, projectId: _projectId, environmentId: _environmentId),
-        _api.streamingChannels(tenantId: _tenantId),
-        _api.persistenceList(tenantId: _tenantId, subpath: '/database/'),
+        _client.experience.profile(_sdkSession, scope: const DartStreamScope(projectId: _projectId, environmentId: _environmentId)),
+        _client.platform.featureFlags(_sdkSession),
+        _client.experience.inventory(_sdkSession, scope: const DartStreamScope(projectId: _projectId, environmentId: _environmentId)),
+        _client.reactive.streamingChannels(_sdkSession),
+        _client.persistence.list('/database/', session: _sdkSession),
       ]);
 
       final loadedWorkspace = results[0] as WorkspaceData?;
       final profile = results[1] as Map<String, dynamic>;
-      final flags = results[2] as Map<String, dynamic>;
-      final inventory = results[3] as Map<String, dynamic>;
+      final flagsList = results[2] as List;
+      final items = results[3] as List;
       final channels = results[4] as List;
       final db = results[5] as List;
-
-      // Extract flags list
-      final flagsList = (flags['flags'] is List)
-          ? flags['flags'] as List
-          : (flags['data'] is List ? flags['data'] as List : const []);
-
-      // Extract inventory list
-      final invMap = ((inventory['inventory'] is Map) ? inventory['inventory'] : inventory) as Map?;
-      final items = (invMap?['items'] is List) ? invMap!['items'] as List : const [];
 
       _log('Workspace successfully loaded.');
 
@@ -129,8 +121,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _logReactiveEvent(String eventType, Map<String, dynamic> payload) async {
     _log('Logging reactive event: $eventType');
     try {
-      await _api.logEvent(
-        tenantId: _tenantId,
+      await _client.reactive.trackEvent(
+        _sdkSession,
         eventType: eventType,
         payload: {
           ...payload,
