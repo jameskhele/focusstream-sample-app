@@ -15,37 +15,31 @@ class CloudSaveService {
     required String userId,
     required String tenantId,
   }) async {
-    debugPrint(
-      'CloudSaveService.loadWorkspace userId=$userId tenantId=$tenantId slotKey=$slotKey',
+    debugPrint('CloudSaveService.loadWorkspace slotKey=$slotKey');
+    final snapshot = await api.loadSnapshot(
+      userId: userId,
+      tenantId: tenantId,
+      slotKey: slotKey,
+      projectId: projectId,
+      environmentId: environmentId,
     );
-    try {
-      final snapshot = await api.loadSnapshot(
-        userId: userId,
-        tenantId: tenantId,
-        slotKey: slotKey,
-        projectId: projectId,
-        environmentId: environmentId,
-      );
 
-      if (snapshot == null) {
-        debugPrint('CloudSaveService.loadWorkspace snapshot=null');
-        return null;
-      }
+    if (snapshot == null) {
+      debugPrint('CloudSaveService.loadWorkspace snapshot=null');
+      return null;
+    }
 
-      final snapshotData = snapshot['snapshot'];
-      if (snapshotData is! Map) {
-        debugPrint('CloudSaveService.loadWorkspace snapshotData invalid');
-        return null;
-      }
+    final snapshotData = snapshot['snapshot'];
+    if (snapshotData is! Map) {
+      debugPrint('CloudSaveService.loadWorkspace snapshotData invalid');
+      return null;
+    }
 
-      final payload = snapshotData['payload'];
-      if (payload is Map) {
-        final workspace = WorkspaceData.fromJson(Map<String, dynamic>.from(payload));
-        debugPrint('CloudSaveService.loadWorkspace parsedWorkspace: tasksCount=${workspace.tasks.length}');
-        return workspace;
-      }
-    } catch (e) {
-      debugPrint('CloudSaveService.loadWorkspace error: $e');
+    final payload = snapshotData['payload'];
+    if (payload is Map) {
+      final workspace = WorkspaceData.fromJson(Map<String, dynamic>.from(payload));
+      debugPrint('CloudSaveService.loadWorkspace parsedWorkspace: tasksCount=${workspace.tasks.length}');
+      return workspace;
     }
     return null;
   }
@@ -55,21 +49,15 @@ class CloudSaveService {
     required String tenantId,
     required WorkspaceData workspace,
   }) async {
-    debugPrint(
-      'CloudSaveService.saveWorkspace userId=$userId tenantId=$tenantId slotKey=$slotKey',
+    debugPrint('CloudSaveService.saveWorkspace slotKey=$slotKey');
+    final resp = await api.saveSnapshot(
+      userId: userId,
+      tenantId: tenantId,
+      slotKey: slotKey,
+      payload: workspace.toJson(),
+      projectId: projectId,
+      environmentId: environmentId,
     );
-    try {
-      final resp = await api.saveSnapshot(
-        userId: userId,
-        tenantId: tenantId,
-        slotKey: slotKey,
-        payload: workspace.toJson(),
-        projectId: projectId,
-        environmentId: environmentId,
-      );
-      debugPrint('CloudSaveService.saveWorkspace response status: $resp');
-    } catch (e) {
-      debugPrint('CloudSaveService.saveWorkspace error: $e');
-    }
+    debugPrint('CloudSaveService.saveWorkspace response status: $resp');
   }
 }

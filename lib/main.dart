@@ -40,9 +40,8 @@ class _FocusStreamAppState extends State<FocusStreamApp> {
           primary: Color(0xFF6366F1), // Premium indigo accent
           secondary: Color(0xFF10B981), // Emerald green
           surface: Color(0xFF1E2130),
-          background: Color(0xFF0F111A),
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           color: const Color(0xFF1E2130),
           elevation: 4,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

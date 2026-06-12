@@ -12,22 +12,17 @@ class Session extends ChangeNotifier {
   String? errorMessage;
   DartstreamApi? api;
 
-  Future<void> signIn(String email, String password) async {
+  Future<void> _authFlow(Future<FirebaseAuthResult> Function() authCall, String successMsg) async {
     status = SessionStatus.signingIn;
     errorMessage = null;
     notifyListeners();
 
     try {
-      final auth = await FirebaseAuthRest.signIn(email, password);
+      final auth = await authCall();
       final apiInstance = DartstreamApi(idToken: auth.idToken);
       final ids = await apiInstance.signup();
 
-      debugPrint('======================');
-      debugPrint('LOGIN SUCCESS');
-      debugPrint('EMAIL: ${auth.email}');
-      debugPrint('USER ID: ${ids.userId}');
-      debugPrint('TENANT ID: ${ids.tenantId}');
-      debugPrint('======================');
+      debugPrint(successMsg);
 
       api = apiInstance;
       this.email = auth.email;
@@ -36,39 +31,16 @@ class Session extends ChangeNotifier {
       status = SessionStatus.signedIn;
     } catch (e) {
       status = SessionStatus.error;
-      errorMessage = e.toString();
+      errorMessage = _cleanError(e);
     }
     notifyListeners();
   }
 
-  Future<void> signUp(String email, String password) async {
-    status = SessionStatus.signingIn;
-    errorMessage = null;
-    notifyListeners();
+  Future<void> signIn(String email, String password) =>
+      _authFlow(() => FirebaseAuthRest.signIn(email, password), 'Session: Sign-in successful');
 
-    try {
-      final auth = await FirebaseAuthRest.signUp(email, password);
-      final apiInstance = DartstreamApi(idToken: auth.idToken);
-      final ids = await apiInstance.signup();
-
-      debugPrint('======================');
-      debugPrint('ACCOUNT CREATED');
-      debugPrint('EMAIL: ${auth.email}');
-      debugPrint('USER ID: ${ids.userId}');
-      debugPrint('TENANT ID: ${ids.tenantId}');
-      debugPrint('======================');
-
-      api = apiInstance;
-      this.email = auth.email;
-      userId = ids.userId;
-      tenantId = ids.tenantId;
-      status = SessionStatus.signedIn;
-    } catch (e) {
-      status = SessionStatus.error;
-      errorMessage = e.toString();
-    }
-    notifyListeners();
-  }
+  Future<void> signUp(String email, String password) =>
+      _authFlow(() => FirebaseAuthRest.signUp(email, password), 'Session: Sign-up successful');
 
   void signOut() {
     status = SessionStatus.signedOut;
@@ -78,5 +50,20 @@ class Session extends ChangeNotifier {
     errorMessage = null;
     api = null;
     notifyListeners();
+  }
+
+  String _cleanError(Object e) {
+    var str = e.toString();
+    if (str.startsWith('DartstreamApiException: ')) {
+      str = str.replaceFirst('DartstreamApiException: ', '');
+    } else if (str.startsWith('DartstreamApiException(')) {
+      final idx = str.indexOf('): ');
+      if (idx != -1) {
+        str = str.substring(idx + 3);
+      }
+    } else if (str.startsWith('Exception: ')) {
+      str = str.replaceFirst('Exception: ', '');
+    }
+    return str;
   }
 }

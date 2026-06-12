@@ -29,7 +29,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<dynamic> _liveFeatureFlags = const [];
   List<dynamic> _liveInventory = const [];
   List<dynamic> _liveChannels = const [];
-  List<dynamic> _liveSessions = const [];
   List<dynamic> _liveDatabase = const [];
   final List<String> _liveLogs = [];
 
@@ -641,6 +640,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: ListView(
               children: [
                 _explorerSection('Workspace Logs', _logsListWidget()),
+                _explorerSection('Experience Profile', _profileWidget()),
                 _explorerSection('Feature Flags (${_liveFeatureFlags.length})', _flagsWidget()),
                 _explorerSection('Inventory (${_liveInventory.length})', _inventoryWidget()),
                 _explorerSection('Streaming Channels (${_liveChannels.length})', _channelsWidget()),
@@ -726,6 +726,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: _liveDatabase.map((d) => Text('• ${d.toString()}', style: const TextStyle(fontSize: 11))).toList(),
+    );
+  }
+
+  Widget _profileWidget() {
+    final profile = _liveProfile;
+    if (profile == null) return const Text('No profile loaded', style: TextStyle(fontSize: 12));
+    final data = profile['profile'] ?? profile['data'] ?? profile;
+    if (data is! Map) {
+      return Text(profile.toString(), style: const TextStyle(fontSize: 11));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: data.entries.map((e) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Text('• ${e.key}: ${e.value}', style: const TextStyle(fontSize: 11)),
+        );
+      }).toList(),
     );
   }
 }
