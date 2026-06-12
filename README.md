@@ -124,7 +124,4 @@ This approach is browser-safe because it avoids shipping privileged service-acco
 
 * **Dashboard Overview**: A premium dark-themed UI displaying workspace tasks, Pomodoro timers, and live SaaS integrations.
   ![FocusStream Dashboard](doc/dashboard_preview.png)
-  
-* **Interaction Flow Video**: A captured recording of the Firebase onboarding and sign-up flow executing against the live backend services.
-  ![Auth Flow Walkthrough](doc/auth_flow_preview.webp)
 
