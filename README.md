@@ -19,7 +19,7 @@ It is designed as a standalone sample application implementing a business/SaaS w
 
 ## Prerequisites
 
-* **Supported toolchain floor**: Flutter 3.44.0 / Dart 3.12.0 (verified building — `flutter build web` + `dart analyze` both green on this exact pair). The client requires Dart >=3.12.0, so this is a hard floor, not a suggestion: on an older toolchain, `pub get` fails fast with a version-solve message (e.g. Dart 3.11.4 → "requires SDK version ^3.12.0"). That is a toolchain mismatch, not a code defect.
+* **Supported toolchain floor**: Flutter 3.44.1 / Dart 3.12.1 (verified building — `flutter build web` + `dart analyze` both green on this exact pair). Note that while the project's own package constraint specifies `>=3.12.0`, the official `dartstream_client: 0.0.1` package requires Dart `^3.12.1` (bundled with Flutter `3.44.1`), making `3.12.1` the effective toolchain floor.
 * **Chrome browser** (client runs on `-d chrome` / web-server)
 
 ---
@@ -85,13 +85,12 @@ This will run all E2E SDK checks and print a summary:
 
 ## Running the Flutter Web Client
 
-The Firebase web API key is HTTP-referrer-restricted in Google Cloud. `http://localhost:3000` is on the allowlist, so the dev server must run on **port 3000**:
+The Firebase web API key is required at build time since the application relies on it for client-side authentication. In addition, the Firebase web API key is HTTP-referrer-restricted in Google Cloud, and `http://localhost:3000` is on the allowlist. Therefore, the dev server must run on **port 3000** with the key injected via `--dart-define`:
 
 ```bash
 flutter pub get
-flutter run -d chrome --web-port=3000
+flutter run -d chrome --web-port=3000 --dart-define=FIREBASE_API_KEY=YOUR_FIREBASE_API_KEY
 ```
-*(If you want to inject a custom API key at build time, append `--dart-define=FIREBASE_API_KEY=YOUR_KEY`)*
 
 ---
 

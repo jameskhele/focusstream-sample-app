@@ -19,3 +19,4 @@ jobs:
       - run: flutter analyze
       - run: dart analyze bin
       - run: flutter test
+      - run: flutter build web --dart-define=FIREBASE_API_KEY=dummy
