@@ -125,3 +125,13 @@ This approach is browser-safe because it avoids shipping privileged service-acco
 * **Dashboard Overview**: A premium dark-themed UI displaying workspace tasks, Pomodoro timers, and live SaaS integrations.
   ![FocusStream Dashboard](doc/dashboard_preview.png)
 
+## Firebase Hosting Deployment
+
+The app is configured for **Firebase Hosting**. The hosting target is `focusstream-sample-app`. Deployment is managed through the GitLab CI/CD pipeline. Due to a known issue with the latest `firebase-tools` (v15.22.x) breaking Workload Identity Federation, the pipeline pins `firebase-tools` to version `13.12.0`. Until the upstream bug is resolved, deployments should be triggered via the CI pipeline or locally using:
+
+```bash
+firebase use --add # select the project
+firebase deploy --only hosting
+```
+
+Make sure your local `.env` contains the `FIREBASE_API_KEY` and that the CI environment variables are set.
