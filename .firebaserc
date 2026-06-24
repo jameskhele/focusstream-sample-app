@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "aortem-sample-apps"
+  },
+  "targets": {
+    "aortem-sample-apps": {
+      "hosting": {
+        "sample-app-james-khele": [
+          "sample-app-james-khele"
+        ]
+      }
+    }
+  }
+}
