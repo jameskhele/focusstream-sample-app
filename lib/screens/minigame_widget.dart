@@ -2,9 +2,74 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:dartstream_client/dartstream_client.dart';
 import '../models/workspace_data.dart';
 import '../state/session.dart';
+
+// Game Entity Definitions
+class GameParticle {
+  double x, y;
+  double vx, vy;
+  double life; // 1.0 down to 0.0
+  final Color color;
+
+  GameParticle({
+    required this.x,
+    required this.y,
+    required this.vx,
+    required this.vy,
+    required this.life,
+    required this.color,
+  });
+
+  void update(double dt) {
+    x += vx * dt;
+    y += vy * dt;
+    life -= dt * 2.0; // disappear quickly
+  }
+}
+
+class LaserGate {
+  double x;
+  final double gapTop;
+  final double gapHeight;
+  final double width;
+  bool scored = false;
+
+  LaserGate({
+    required this.x,
+    required this.gapTop,
+    required this.gapHeight,
+    required this.width,
+  });
+}
+
+class CyberShard {
+  double x;
+  double y;
+  bool collected = false;
+  double angle = 0.0;
+
+  CyberShard({
+    required this.x,
+    required this.y,
+  });
+}
+
+class SentryDrone {
+  double x;
+  double y;
+  double speed;
+  int direction; // 1 or -1
+
+  SentryDrone({
+    required this.x,
+    required this.y,
+    required this.speed,
+    required this.direction,
+  });
+}
 
 class FloatingTextEffect {
   final Key id;
@@ -41,36 +106,45 @@ class MinigameWidget extends StatefulWidget {
 }
 
 class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStateMixin {
+  late Ticker _gameTicker;
   Timer? _gameLoopTimer;
   Timer? _animTimer;
-  Timer? _patrolTimer;
+  
   late AnimationController _glitchController;
   late AnimationController _wantedPulseController;
   final List<FloatingTextEffect> _floaters = [];
   final List<String> _policeRadioLogs = [
-    '[DISPATCH] Safehouse link detected. All squads monitor matrix traffic.',
-    '[SYSTEM] Operational matrix initialized.'
+    '[DISPATCH] Safehouse node detected. Keep sentinel scans active.',
+    '[SYSTEM] Cyber Ball gravity core online.'
   ];
 
   static const _projectId = 'focusstream';
   static const _environmentId = 'development';
 
-  // Game/Grid States
+  // Game Engine & State
   bool _isPlaying = false;
-  String _activeHeistName = '';
-  int _activeHeistPayout = 0;
-  int _activeHeistHeatRisk = 0;
+  bool _gameOver = false;
+  int _score = 0;
+  double _timeElapsed = 0.0;
 
-  int _gridSize = 6;
-  List<int> _playerPos = [0, 5];
-  List<int> _vaultPos = [5, 0];
-  List<List<int>> _firewalls = []; // [[x, y, dx, dy, isChaser]]
-  List<List<int>> _credits = []; // [[x, y]]
-  List<List<int>> _decoysOnGrid = []; // [[x, y]]
+  // Ball physics
+  double _ballY = 150.0;
+  double _ballVelocityY = 0.0;
+  static const double _ballX = 70.0;
+  static const double _ballRadius = 11.0;
+  
+  double _invincibilityTimer = 0.0; // Shield flash time on decoy hit
+  int _runShardsCollected = 0;
 
-  int _currentRunCredits = 0;
-  bool _flashRed = false;
+  // Entities
+  final List<LaserGate> _gates = [];
+  final List<CyberShard> _shards = [];
+  final List<SentryDrone> _drones = [];
+  final List<GameParticle> _particles = [];
+
+  double _spawnTimer = 0.0;
   final FocusNode _keyboardFocusNode = FocusNode();
+  final Random _rand = Random();
 
   // SDK/Workspace Mappings
   DartStreamClient get _client => widget.session.client!;
@@ -110,6 +184,9 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
       duration: const Duration(milliseconds: 500),
     )..repeat(reverse: true);
 
+    // Initialize 60fps ticker loop for physics
+    _gameTicker = createTicker(_onGameTick);
+
     _startGameLoop();
     _startAnimationLoop();
   }
@@ -118,7 +195,7 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
   void dispose() {
     _gameLoopTimer?.cancel();
     _animTimer?.cancel();
-    _patrolTimer?.cancel();
+    _gameTicker.dispose();
     _glitchController.dispose();
     _wantedPulseController.dispose();
     _keyboardFocusNode.dispose();
@@ -126,15 +203,15 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
   }
 
   void _startGameLoop() {
-    _gameLoopTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+    _gameLoopTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       // Heat dissipation based on Jammers owned
-      if (_heat > 0 && Random().nextDouble() > 0.6) {
+      if (_heat > 0 && _rand.nextDouble() > 0.6) {
         final cooldownChance = 0.15 * (_jammers + 1);
-        if (Random().nextDouble() < cooldownChance) {
+        if (_rand.nextDouble() < cooldownChance) {
           final newHeat = max(0, _heat - 1);
           final updated = widget.workspace.copyWith(gameCores: newHeat);
           widget.onWorkspaceChanged(updated);
-          _addRadioLog('[VPN] Jammer shielded your IP. Heat level cooled down.');
+          _addRadioLog('[VPN] Heat signature cooled down. Jammers active.');
         }
       }
     });
@@ -177,250 +254,293 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
     });
   }
 
-  // Initiate Matrix Hacking Session
-  void _startHeist(String name, int payout, int heatRisk) {
-    if (_heat >= 5) {
-      _addRadioLog('[WARNING] High Wanted level! Wipe heat trace first.');
+  // Action input triggers jump
+  void _triggerJump() {
+    if (!_isPlaying) {
+      _startGame();
+      return;
+    }
+    if (_gameOver) {
+      _startGame();
       return;
     }
 
-    _keyboardFocusNode.requestFocus();
+    setState(() {
+      // Jump speed boosted by click overclock multiplier
+      _ballVelocityY = -230.0 - (_clickMult * 5.0);
+      
+      // Emit neon trail particles
+      for (int i = 0; i < 5; i++) {
+        _particles.add(
+          GameParticle(
+            x: _ballX,
+            y: _ballY,
+            vx: -50.0 - _rand.nextDouble() * 50.0,
+            vy: -20.0 + _rand.nextDouble() * 40.0,
+            life: 1.0,
+            color: const Color(0xFF00F5FF),
+          ),
+        );
+      }
+    });
+  }
 
+  void _startGame() {
+    _keyboardFocusNode.requestFocus();
     setState(() {
       _isPlaying = true;
-      _activeHeistName = name;
-      _activeHeistPayout = payout;
-      _activeHeistHeatRisk = heatRisk;
-      _currentRunCredits = 0;
+      _gameOver = false;
+      _score = 0;
+      _runShardsCollected = 0;
+      _ballY = 140.0;
+      _ballVelocityY = 0.0;
+      _timeElapsed = 0.0;
+      _invincibilityTimer = 0.0;
 
-      // Grid sizing based on heist difficulty
-      if (name == 'ATM Hack') {
-        _gridSize = 5;
-      } else if (name == 'Armored Van') {
-        _gridSize = 6;
-      } else if (name == 'Giga-Bank Heist') {
-        _gridSize = 7;
-      } else {
-        _gridSize = 8; // Military Vault
-      }
-
-      _playerPos = [0, _gridSize - 1];
-      _vaultPos = [_gridSize - 1, 0];
-
-      // Generate credits and decoys
-      _credits.clear();
-      _decoysOnGrid.clear();
-      _firewalls.clear();
-
-      final rand = Random();
-      final targetCredits = name == 'ATM Hack' ? 2 : name == 'Armored Van' ? 3 : name == 'Giga-Bank Heist' ? 4 : 5;
-
-      while (_credits.length < targetCredits) {
-        int cx = rand.nextInt(_gridSize);
-        int cy = rand.nextInt(_gridSize);
-        if ((cx == _playerPos[0] && cy == _playerPos[1]) || (cx == _vaultPos[0] && cy == _vaultPos[1])) continue;
-        if (!_credits.any((c) => c[0] == cx && c[1] == cy)) {
-          _credits.add([cx, cy]);
-        }
-      }
-
-      // Add decoy key chance
-      if (rand.nextDouble() > 0.4) {
-        int dx = rand.nextInt(_gridSize);
-        int dy = rand.nextInt(_gridSize);
-        if ((dx != _playerPos[0] || dy != _playerPos[1]) && (dx != _vaultPos[0] || dy != _vaultPos[1])) {
-          _decoysOnGrid.add([dx, dy]);
-        }
-      }
-
-      // Spawning firewalls
-      // Format: [x, y, dx, dy, isChaser]
-      int firewallCount = name == 'ATM Hack' ? 1 : name == 'Armored Van' ? 2 : name == 'Giga-Bank Heist' ? 3 : 4;
-      for (int i = 0; i < firewallCount; i++) {
-        int fx = rand.nextInt(_gridSize - 2) + 1;
-        int fy = rand.nextInt(_gridSize - 2) + 1;
-        bool isChaser = false;
-        
-        // Homing chase AI configurations
-        if (name == 'Giga-Bank Heist' && i == 0) isChaser = true;
-        if (name == 'Military Vault' && i < 2) isChaser = true;
-
-        _firewalls.add([fx, fy, rand.nextBool() ? 1 : -1, rand.nextBool() ? 1 : -1, isChaser ? 1 : 0]);
-      }
+      _gates.clear();
+      _shards.clear();
+      _drones.clear();
+      _particles.clear();
+      _spawnTimer = 0.0;
     });
 
-    _addRadioLog('[CONNECT] Matrix connected. Bypassing $_activeHeistName firewall...');
-    _trackEvent('heist.started', {'type': name, 'grid_size': _gridSize});
-
-    // Start firewall movement loop
-    _patrolTimer?.cancel();
-    final easyHack = _isFeatureEnabled('easy-hack-mode');
-    final intervalMs = easyHack ? 1100 : 700;
-
-    _patrolTimer = Timer.periodic(Duration(milliseconds: intervalMs), (timer) {
-      if (!_isPlaying) {
-        timer.cancel();
-        return;
-      }
-      _moveFirewalls();
-    });
+    _addRadioLog('[CONNECT] Security tunnel initialized. Evade incoming lasers.');
+    _trackEvent('game.started', {'mult': _clickMult});
+    _gameTicker.start();
   }
 
-  void _moveFirewalls() {
-    setState(() {
-      for (var f in _firewalls) {
-        final isChaser = f[4] == 1;
-        if (isChaser) {
-          // Chase logic - step towards player
-          int px = _playerPos[0];
-          int py = _playerPos[1];
-          int fx = f[0];
-          int fy = f[1];
+  // Core physics tick loop running at 60fps
+  void _onGameTick(Duration elapsed) {
+    if (!_isPlaying || _gameOver) return;
 
-          if (fx < px) f[0]++;
-          else if (fx > px) f[0]--;
-          else if (fy < py) f[1]++;
-          else if (fy > py) f[1]--;
-        } else {
-          // Standard patrol logic
-          int nx = f[0] + f[2];
-          int ny = f[1] + f[3];
-
-          if (nx < 0 || nx >= _gridSize) {
-            f[2] = -f[2];
-            nx = f[0] + f[2];
-          }
-          if (ny < 0 || ny >= _gridSize) {
-            f[3] = -f[3];
-            ny = f[1] + f[3];
-          }
-
-          f[0] = nx.clamp(0, _gridSize - 1);
-          f[1] = ny.clamp(0, _gridSize - 1);
-        }
-      }
-      _checkCollisions();
-    });
-  }
-
-  void _movePlayer(int dx, int dy) {
-    if (!_isPlaying) return;
+    // Fixed timestep dt (roughly 16ms)
+    final dt = 0.0166;
+    _timeElapsed += dt;
 
     setState(() {
-      int nx = (_playerPos[0] + dx).clamp(0, _gridSize - 1);
-      int ny = (_playerPos[1] + dy).clamp(0, _gridSize - 1);
-      _playerPos = [nx, ny];
-
-      // Check credit nodes collection
-      for (int i = _credits.length - 1; i >= 0; i--) {
-        if (_credits[i][0] == nx && _credits[i][1] == ny) {
-          _credits.removeAt(i);
-          final doubleLoot = _isFeatureEnabled('double-loot');
-          final collected = (doubleLoot ? 200 : 100) * (_clickMult);
-          _currentRunCredits += collected;
-          _spawnFloater('+$collected KB', const Offset(120, 100));
-        }
-      }
-
-      // Check decoy pickup
-      for (int i = _decoysOnGrid.length - 1; i >= 0; i--) {
-        if (_decoysOnGrid[i][0] == nx && _decoysOnGrid[i][1] == ny) {
-          _decoysOnGrid.removeAt(i);
-          // Directly add virtual decoy to player inventory
-          final updated = widget.workspace.copyWith(tycoonAiPilots: _decoys + 1);
-          widget.onWorkspaceChanged(updated);
-          _addRadioLog('[SOFTWARE] Picked up trace decoy key.');
-          _spawnFloater('+1 Decoy', const Offset(120, 100));
-        }
-      }
-
-      _checkCollisions();
-
-      // Check win condition
-      if (_playerPos[0] == _vaultPos[0] && _playerPos[1] == _vaultPos[1]) {
-        _completeMissionSuccess();
-      }
-    });
-  }
-
-  void _checkCollisions() {
-    for (var f in _firewalls) {
-      if (f[0] == _playerPos[0] && f[1] == _playerPos[1]) {
-        _triggerFirewallDetection();
-        break;
-      }
-    }
-  }
-
-  void _triggerFirewallDetection() {
-    _patrolTimer?.cancel();
-    setState(() {
-      _flashRed = true;
-    });
-
-    Timer(const Duration(milliseconds: 300), () {
-      if (mounted) setState(() => _flashRed = false);
-    });
-
-    if (_decoys > 0) {
-      // Use Decoy to save run
-      final updated = widget.workspace.copyWith(tycoonAiPilots: _decoys - 1);
-      widget.onWorkspaceChanged(updated);
-      _addRadioLog('[ALERT] Firewall collision! Decoy VPN deployed. Shield active.');
-      
-      // Relocate player to start, but keep loot
-      setState(() {
-        _playerPos = [0, _gridSize - 1];
-      });
-
-      // Resume patrol timer
+      // 1. Gravity Math
       final easyHack = _isFeatureEnabled('easy-hack-mode');
-      _patrolTimer = Timer.periodic(Duration(milliseconds: easyHack ? 1100 : 700), (timer) {
-        if (!_isPlaying) {
-          timer.cancel();
-          return;
+      final gravity = easyHack ? 380.0 : 540.0;
+      _ballVelocityY += gravity * dt;
+      _ballY += _ballVelocityY * dt;
+
+      // Invincibility check
+      if (_invincibilityTimer > 0.0) {
+        _invincibilityTimer -= dt;
+      }
+
+      // Check boundaries
+      if (_ballY < 0) {
+        _ballY = 0;
+        _ballVelocityY = 0;
+      }
+      if (_ballY > 280) {
+        _triggerCollision();
+      }
+
+      // 2. Obstacles spawn & move
+      _spawnTimer += dt;
+      final spawnInterval = easyHack ? 2.5 : 1.8;
+      if (_spawnTimer >= spawnInterval) {
+        _spawnTimer = 0.0;
+        _spawnEntities();
+      }
+
+      // Move gates
+      final scrollSpeed = easyHack ? 110.0 : 160.0;
+      for (int i = _gates.length - 1; i >= 0; i--) {
+        final gate = _gates[i];
+        gate.x -= scrollSpeed * dt;
+
+        // Score pass gate
+        if (!gate.scored && gate.x + gate.width < _ballX) {
+          gate.scored = true;
+          _score++;
+          _spawnFloater('+1', const Offset(_ballX, 60.0));
+          if (_score % 10 == 0) {
+            _addRadioLog('[SYSTEM] Firewalls bypassed: $_score');
+            _trackEvent('game.checkpoint', {'score': _score});
+          }
         }
-        _moveFirewalls();
-      });
-    } else {
-      // Busted run
-      final finalHeat = min(5, _heat + 1);
-      final updated = widget.workspace.copyWith(gameCores: finalHeat);
-      widget.onWorkspaceChanged(updated);
+        if (gate.x < -100) _gates.removeAt(i);
+      }
 
-      _addRadioLog('[ALARM] Trace detected! Cops tracing location. Heat level increased.');
-      _trackEvent('heist.busted', {'heist_target': _activeHeistName, 'final_heat': finalHeat});
+      // Move shards & rotate
+      for (int i = _shards.length - 1; i >= 0; i--) {
+        final shard = _shards[i];
+        shard.x -= scrollSpeed * dt;
+        shard.angle += dt * 3.0;
 
-      setState(() {
-        _isPlaying = false;
-      });
+        // Collision check with ball
+        final dx = shard.x - _ballX;
+        final dy = shard.y - _ballY;
+        final dist = sqrt(dx * dx + dy * dy);
+        if (dist < (_ballRadius + 10.0)) {
+          _collectShard(shard);
+          _shards.removeAt(i);
+          continue;
+        }
+        if (shard.x < -50) _shards.removeAt(i);
+      }
+
+      // Move military drone hazards
+      final militaryResponse = _isFeatureEnabled('game-military-response');
+      if (militaryResponse) {
+        for (int i = _drones.length - 1; i >= 0; i--) {
+          final drone = _drones[i];
+          drone.x -= (scrollSpeed + drone.speed) * dt;
+
+          // Drone collision check
+          final dx = drone.x - _ballX;
+          final dy = drone.y - _ballY;
+          final dist = sqrt(dx * dx + dy * dy);
+          if (dist < (_ballRadius + 9.0)) {
+            _triggerCollision();
+          }
+          if (drone.x < -50) _drones.removeAt(i);
+        }
+      }
+
+      // Particle physics
+      for (int i = _particles.length - 1; i >= 0; i--) {
+        final p = _particles[i];
+        p.update(dt);
+        if (p.life <= 0) _particles.removeAt(i);
+      }
+
+      // Collision checks with laser walls
+      for (final gate in _gates) {
+        // A gate is two rectangles: top and bottom
+        final hitTop = _ballX + _ballRadius > gate.x &&
+            _ballX - _ballRadius < gate.x + gate.width &&
+            _ballY - _ballRadius < gate.gapTop;
+        final hitBottom = _ballX + _ballRadius > gate.x &&
+            _ballX - _ballRadius < gate.x + gate.width &&
+            _ballY + _ballRadius > gate.gapTop + gate.gapHeight;
+
+        if (hitTop || hitBottom) {
+          _triggerCollision();
+          break;
+        }
+      }
+    });
+  }
+
+  void _spawnEntities() {
+    final easyHack = _isFeatureEnabled('easy-hack-mode');
+    final gapHeight = easyHack ? 100.0 : 80.0;
+    
+    // Choose gap position between 30 and 170
+    final gapTop = 30.0 + _rand.nextDouble() * 110.0;
+    
+    _gates.add(
+      LaserGate(
+        x: 360.0,
+        gapTop: gapTop,
+        gapHeight: gapHeight,
+        width: 38.0,
+      ),
+    );
+
+    // Spawn shard inside the gap
+    _shards.add(
+      CyberShard(
+        x: 360.0 + 19.0, // center of gate
+        y: gapTop + (gapHeight / 2.0),
+      ),
+    );
+
+    // Military response drone spawning
+    final militaryResponse = _isFeatureEnabled('game-military-response');
+    if (militaryResponse && _rand.nextDouble() > 0.4) {
+      _drones.add(
+        SentryDrone(
+          x: 380.0,
+          y: 20.0 + _rand.nextDouble() * 240.0,
+          speed: 40.0 + _rand.nextDouble() * 50.0,
+          direction: -1,
+        ),
+      );
     }
   }
 
-  void _completeMissionSuccess() {
-    _patrolTimer?.cancel();
-    setState(() {
-      _isPlaying = false;
-    });
-
-    // Payout calc
-    final basePayout = _activeHeistPayout * (1 + _rep);
-    final totalReward = basePayout + _currentRunCredits;
-    final finalHeat = min(5, _heat + _activeHeistHeatRisk);
-
+  void _collectShard(CyberShard shard) {
+    final doubleLoot = _isFeatureEnabled('double-loot');
+    final shardReward = (doubleLoot ? 200 : 100) * (_clickMult);
+    
+    _runShardsCollected++;
+    
     final updated = widget.workspace.copyWith(
-      gameScore: _cash + totalReward,
-      gameCores: finalHeat,
-      tycoonServers: _heistsCompleted + 1,
+      gameScore: _cash + shardReward,
     );
     widget.onWorkspaceChanged(updated);
 
-    _addRadioLog('[SUCCESS] Completed $_activeHeistName. Earned \$$totalReward cash.');
-    _spawnFloater('+$totalReward KB', const Offset(150.0, 80.0));
-    _trackEvent('heist.completed', {'type': _activeHeistName, 'earnings': totalReward});
+    _spawnFloater('+\$$shardReward', Offset(_ballX, _ballY - 10.0));
+    _addRadioLog('[DATABASE] Decrypted code shard: +\$$shardReward cash');
+
+    // Create green explosion particles
+    for (int i = 0; i < 8; i++) {
+      _particles.add(
+        GameParticle(
+          x: shard.x,
+          y: shard.y,
+          vx: -60.0 + _rand.nextDouble() * 120.0,
+          vy: -60.0 + _rand.nextDouble() * 120.0,
+          life: 1.0,
+          color: const Color(0xFF10B981),
+        ),
+      );
+    }
   }
 
-  // Upgrades and Prestige Reset commands
+  void _triggerCollision() {
+    if (_invincibilityTimer > 0.0) return; // Immune
+
+    if (_decoys > 0) {
+      // Consume decoy shield
+      final updated = widget.workspace.copyWith(
+        tycoonAiPilots: _decoys - 1,
+      );
+      widget.onWorkspaceChanged(updated);
+
+      _invincibilityTimer = 1.8; // invincibility seconds
+      _addRadioLog('[ALERT] Firewall crash! Decoy trace diverted security.');
+      _spawnFloater('VPN SHIELDED', Offset(_ballX, _ballY - 20.0));
+
+      // Emit flash particles
+      for (int i = 0; i < 15; i++) {
+        _particles.add(
+          GameParticle(
+            x: _ballX,
+            y: _ballY,
+            vx: -100.0 + _rand.nextDouble() * 200.0,
+            vy: -100.0 + _rand.nextDouble() * 200.0,
+            life: 1.2,
+            color: const Color(0xFFEC4899),
+          ),
+        );
+      }
+    } else {
+      // Game Over
+      _gameTicker.stop();
+      setState(() {
+        _gameOver = true;
+      });
+
+      // Increase heat wanted level
+      final finalHeat = min(5, _heat + 1);
+      final updated = widget.workspace.copyWith(
+        gameCores: finalHeat,
+        tycoonServers: _heistsCompleted + 1,
+      );
+      widget.onWorkspaceChanged(updated);
+
+      _addRadioLog('[ALARM] BUSTED! Gravity hack crashed. Score: $_score. Heat levels critical.');
+      _trackEvent('game.over', {'score': _score, 'shards': _runShardsCollected, 'heat_increase': 1});
+    }
+  }
+
+  // Netrunner Market Operations
   void _buyJammer() {
     final cost = 400 * (_jammers + 1);
     if (_cash >= cost) {
@@ -429,7 +549,7 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
         tycoonSeniors: _jammers + 1,
       );
       widget.onWorkspaceChanged(updated);
-      _addRadioLog('[UPGRADE] Installed Server Signal Jammer.');
+      _addRadioLog('[UPGRADE] Installed hardware Signal Jammer.');
       _trackEvent('heist.upgrade.bought', {'item': 'jammer', 'cost': cost});
     }
   }
@@ -442,7 +562,7 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
         tycoonAiPilots: _decoys + 1,
       );
       widget.onWorkspaceChanged(updated);
-      _addRadioLog('[UPGRADE] Downloaded VPN decrypter key.');
+      _addRadioLog('[UPGRADE] Loaded VPN Decoy software shield.');
       _trackEvent('heist.upgrade.bought', {'item': 'decoy', 'cost': cost});
     }
   }
@@ -455,7 +575,7 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
         gameMultiplier: _clickMult + 1,
       );
       widget.onWorkspaceChanged(updated);
-      _addRadioLog('[UPGRADE] Matrix node Overclocker updated.');
+      _addRadioLog('[UPGRADE] Gravity core engine overclocked.');
       _trackEvent('heist.upgrade.bought', {'item': 'overclocker', 'cost': cost});
     }
   }
@@ -468,7 +588,7 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
         gameCores: 0,
       );
       widget.onWorkspaceChanged(updated);
-      _addRadioLog('[DATABASE] Security nodes wiped. Heat cleared.');
+      _addRadioLog('[VPN] Clear server records. Heat trace reset.');
       _trackEvent('heist.heat.wiped', {'cost': cost});
     }
   }
@@ -485,7 +605,7 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
       gameMultiplier: 1,
     );
     widget.onWorkspaceChanged(updated);
-    _addRadioLog('[SYSTEM] Safehouse relocated. Global multiplier increased.');
+    _addRadioLog('[PRESTIGE] Node relocated. Network multiplier upgraded to x$prestigeLevel.');
     _trackEvent('heist.prestige', {'prestige': prestigeLevel});
   }
 
@@ -516,27 +636,17 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
       focusNode: _keyboardFocusNode,
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
-          if (event.logicalKey == LogicalKeyboardKey.arrowUp || event.logicalKey == LogicalKeyboardKey.keyW) {
-            _movePlayer(0, -1);
-            return KeyEventResult.handled;
-          }
-          if (event.logicalKey == LogicalKeyboardKey.arrowDown || event.logicalKey == LogicalKeyboardKey.keyS) {
-            _movePlayer(0, 1);
-            return KeyEventResult.handled;
-          }
-          if (event.logicalKey == LogicalKeyboardKey.arrowLeft || event.logicalKey == LogicalKeyboardKey.keyA) {
-            _movePlayer(-1, 0);
-            return KeyEventResult.handled;
-          }
-          if (event.logicalKey == LogicalKeyboardKey.arrowRight || event.logicalKey == LogicalKeyboardKey.keyD) {
-            _movePlayer(1, 0);
+          if (event.logicalKey == LogicalKeyboardKey.space ||
+              event.logicalKey == LogicalKeyboardKey.keyW ||
+              event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            _triggerJump();
             return KeyEventResult.handled;
           }
         }
         return KeyEventResult.ignored;
       },
       child: Card(
-        color: const Color(0xFF070913),
+        color: const Color(0xFF060810),
         shape: RoundedRectangleBorder(
           side: BorderSide(
             color: _heat >= 4 ? const Color(0xFFF43F5E) : const Color(0xFF00F5FF),
@@ -550,14 +660,13 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFF0C0E20), Color(0xFF05060A)],
+              colors: [Color(0xFF0B0D1E), Color(0xFF040508)],
             ),
           ),
           child: Padding(
             padding: const EdgeInsets.all(20.0),
             child: Stack(
               children: [
-                // Layout Column
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -568,16 +677,16 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
                         Row(
                           children: [
                             Icon(
-                              Icons.grid_3x3,
+                              Icons.rocket_launch,
                               color: _heat >= 4 ? const Color(0xFFF43F5E) : const Color(0xFF00F5FF),
-                              size: 26,
+                              size: 24,
                             ),
                             const SizedBox(width: 12),
                             const Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'GRAND THEFT CYBER: MATRIX BYPASS',
+                                  'CYBER BOUNCE: GRAVITY HACKER',
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w900,
@@ -586,7 +695,7 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
                                   ),
                                 ),
                                 Text(
-                                  'STEAL CORES. INFILTRATE SECURITY PORTS.',
+                                  'TAP TO IMPULSE. BYPASS FIREWALL GATES.',
                                   style: TextStyle(
                                     fontSize: 9,
                                     color: Color(0xFF94A3B8),
@@ -597,7 +706,7 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
                             ),
                           ],
                         ),
-                        // Cops Wanted Stars
+                        // Stars Heat Tracker
                         Row(
                           children: List.generate(5, (index) {
                             final isActive = index < _heat;
@@ -615,230 +724,160 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
                     ),
                     const SizedBox(height: 16),
 
-                    // Game Stats row
+                    // Stats Dashboard
                     Row(
                       children: [
-                        Expanded(child: _statHudBlock('Safehouse Assets', '\$$_cash', const Color(0xFF10B981))),
+                        Expanded(child: _statHudBlock('Safehouse Cash', '\$$_cash', const Color(0xFF10B981))),
                         const SizedBox(width: 8),
-                        Expanded(child: _statHudBlock('Rep Multiplier', 'x${(_rep + 1)}', const Color(0xFF00F5FF))),
+                        Expanded(child: _statHudBlock('Jump Boost', 'x$_clickMult speed', const Color(0xFF00F5FF))),
                         const SizedBox(width: 8),
-                        Expanded(child: _statHudBlock('Heist Database', '$_heistsCompleted completed', const Color(0xFFA855F7))),
+                        Expanded(child: _statHudBlock('Decoy VPNs', '$_decoys shield keys', const Color(0xFFEC4899))),
                       ],
                     ),
                     const SizedBox(height: 16),
 
-                    // Playfield / Grid Canvas Panel
-                    Container(
-                      height: 280,
-                      decoration: BoxDecoration(
-                        color: Colors.black,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: _flashRed ? const Color(0xFFF43F5E) : const Color(0xFF1E293B),
-                          width: _flashRed ? 3.0 : 1.5,
+                    // Game Canvas (Clickable target)
+                    GestureDetector(
+                      onTap: _triggerJump,
+                      child: Container(
+                        height: 280,
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: _gameOver ? const Color(0xFFF43F5E) : const Color(0xFF1E293B),
+                            width: _gameOver ? 2.5 : 1.5,
+                          ),
                         ),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: Stack(
-                          children: [
-                            // Matrix grid background styling
-                            Opacity(
-                              opacity: 0.15,
-                              child: GridView.builder(
-                                physics: const NeverScrollableScrollPhysics(),
-                                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 16,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Stack(
+                            children: [
+                              CustomPaint(
+                                painter: CyberGamePainter(
+                                  ballY: _ballY,
+                                  ballRadius: _ballRadius,
+                                  gates: _gates,
+                                  shards: _shards,
+                                  drones: _drones,
+                                  particles: _particles,
+                                  invincible: _invincibilityTimer > 0.0,
+                                  time: _timeElapsed,
+                                  militaryEnabled: militaryResponse,
                                 ),
-                                itemCount: 256,
-                                itemBuilder: (context, index) {
-                                  return Container(
-                                    decoration: BoxDecoration(
-                                      border: Border.all(color: const Color(0xFF00F5FF).withOpacity(0.1)),
-                                    ),
-                                  );
-                                },
+                                child: Container(),
                               ),
-                            ),
-                            // Scanning horizontal laser line
-                            AnimatedBuilder(
-                              animation: _glitchController,
-                              builder: (context, child) {
-                                return Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  top: _glitchController.value * 280,
+
+                              // HUD / Instructions inside canvas
+                              if (!_isPlaying)
+                                Center(
                                   child: Container(
-                                    height: 1.5,
-                                    color: const Color(0xFF00F5FF).withOpacity(0.5),
-                                  ),
-                                );
-                              },
-                            ),
-
-                            // Dynamic Game View
-                            if (!_isPlaying)
-                              Center(
-                                child: Container(
-                                  padding: const EdgeInsets.all(20),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF0C0E20).withOpacity(0.9),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: const Color(0xFF1E293B)),
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.security, color: Color(0xFF00F5FF), size: 42),
-                                      const SizedBox(height: 12),
-                                      const Text(
-                                        'FIREWALL MATRIX BLOCKED',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                          fontSize: 13,
-                                          letterSpacing: 1.0,
+                                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF0C0E20).withOpacity(0.9),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: const Color(0xFF1E293B)),
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.touch_app, color: Color(0xFF00F5FF), size: 40),
+                                        const SizedBox(height: 12),
+                                        const Text(
+                                          'GRAVITY SYSTEM OFFLINE',
+                                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13),
                                         ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      const Text(
-                                        'Select an active contract below to hack network ports.',
-                                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
-                                      ),
-                                      const SizedBox(height: 16),
-                                      ElevatedButton(
-                                        onPressed: () => _startHeist('ATM Hack', 150, 0),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(0xFF00F5FF),
-                                          foregroundColor: Colors.black,
-                                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        const SizedBox(height: 6),
+                                        const Text(
+                                          'Tap screen or press Space to jump.',
+                                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
                                         ),
-                                        child: const Text('QUICK HACK (ATM)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-                                      ),
-                                    ],
+                                        const SizedBox(height: 12),
+                                        ElevatedButton(
+                                          onPressed: _startGame,
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFF00F5FF),
+                                            foregroundColor: Colors.black,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          ),
+                                          child: const Text('INITIALIZE HACK', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              )
-                            else
-                              Padding(
-                                padding: const EdgeInsets.all(12.0),
-                                child: GridView.builder(
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: _gridSize,
-                                    crossAxisSpacing: 6,
-                                    mainAxisSpacing: 6,
-                                  ),
-                                  itemCount: _gridSize * _gridSize,
-                                  itemBuilder: (context, index) {
-                                    final x = index % _gridSize;
-                                    final y = index ~/ _gridSize;
 
-                                    final isPlayer = _playerPos[0] == x && _playerPos[1] == y;
-                                    final isVault = _vaultPos[0] == x && _vaultPos[1] == y;
-                                    
-                                    final isFirewall = _firewalls.any((f) => f[0] == x && f[1] == y);
-                                    final isChasingFirewall = _firewalls.any((f) => f[0] == x && f[1] == y && f[4] == 1);
-                                    
-                                    final isCredit = _credits.any((c) => c[0] == x && c[1] == y);
-                                    final isDecoy = _decoysOnGrid.any((d) => d[0] == x && d[1] == y);
-
-                                    // Render cell styles
-                                    Color cellBorder = const Color(0xFF1E293B);
-                                    Color cellBg = const Color(0xFF05060A);
-                                    Widget cellChild = const SizedBox();
-
-                                    if (isPlayer) {
-                                      cellBorder = const Color(0xFF00F5FF);
-                                      cellBg = const Color(0xFF0A2233);
-                                      cellChild = const Icon(Icons.person_pin, color: Color(0xFF00F5FF), size: 18);
-                                    } else if (isVault) {
-                                      cellBorder = const Color(0xFFEAB308);
-                                      cellBg = const Color(0xFF2B2207);
-                                      cellChild = const Icon(Icons.lock_open, color: Color(0xFFEAB308), size: 18);
-                                    } else if (isFirewall) {
-                                      cellBorder = const Color(0xFFF43F5E);
-                                      cellBg = const Color(0xFF330A12);
-                                      cellChild = Icon(
-                                        isChasingFirewall ? Icons.radar : Icons.dangerous,
-                                        color: const Color(0xFFF43F5E),
-                                        size: 18,
-                                      );
-                                    } else if (isCredit) {
-                                      cellBorder = const Color(0xFF10B981);
-                                      cellBg = const Color(0xFF092B1C);
-                                      cellChild = const Icon(Icons.monetization_on, color: Color(0xFF10B981), size: 18);
-                                    } else if (isDecoy) {
-                                      cellBorder = const Color(0xFFEC4899);
-                                      cellBg = const Color(0xFF2E0922);
-                                      cellChild = const Icon(Icons.vpn_key, color: Color(0xFFEC4899), size: 16);
-                                    }
-
-                                    return InkWell(
-                                      onTap: () {
-                                        // Allow tap-to-move to adjacent cells
-                                        int dx = (x - _playerPos[0]).abs();
-                                        int dy = (y - _playerPos[1]).abs();
-                                        if ((dx == 1 && dy == 0) || (dx == 0 && dy == 1)) {
-                                          _movePlayer(x - _playerPos[0], y - _playerPos[1]);
-                                        }
-                                      },
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          color: cellBg,
-                                          borderRadius: BorderRadius.circular(8),
-                                          border: Border.all(color: cellBorder, width: isPlayer || isVault || isFirewall ? 2.0 : 1.0),
-                                          boxShadow: isPlayer
-                                              ? [const BoxShadow(color: Color(0xFF00F5FF), blurRadius: 4)]
-                                              : isVault
-                                                  ? [const BoxShadow(color: Color(0xFFEAB308), blurRadius: 4)]
-                                                  : isFirewall
-                                                      ? [const BoxShadow(color: Color(0xFFF43F5E), blurRadius: 4)]
-                                                      : null,
+                              if (_gameOver)
+                                Center(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1F0A10).withOpacity(0.95),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: const Color(0xFFF43F5E)),
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.report_problem, color: Color(0xFFF43F5E), size: 42),
+                                        const SizedBox(height: 12),
+                                        const Text(
+                                          'CONNECTION INTERRUPTED',
+                                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14),
                                         ),
-                                        child: Center(child: cellChild),
-                                      ),
-                                    );
-                                  },
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Firewalls Bypassed: $_score',
+                                          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        ElevatedButton.icon(
+                                          onPressed: _startGame,
+                                          icon: const Icon(Icons.refresh, size: 14),
+                                          label: const Text('RETRY HACK', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFFF43F5E),
+                                            foregroundColor: Colors.white,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                              ),
-                          ],
+
+                              // Floating scores HUD (Top left)
+                              if (_isPlaying && !_gameOver)
+                                Positioned(
+                                  top: 12,
+                                  left: 12,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.6),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      'SCORE: $_score',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontFamily: 'Courier',
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
 
-                    // Directional Controller (for mobile or mouse clicks)
-                    if (_isPlaying) ...[
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text(
-                            'Control Node:',
-                            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(width: 8),
-                          _directionButton(Icons.arrow_back, () => _movePlayer(-1, 0)),
-                          const SizedBox(width: 6),
-                          _directionButton(Icons.arrow_upward, () => _movePlayer(0, -1)),
-                          const SizedBox(width: 6),
-                          _directionButton(Icons.arrow_downward, () => _movePlayer(0, 1)),
-                          const SizedBox(width: 6),
-                          _directionButton(Icons.arrow_forward, () => _movePlayer(1, 0)),
-                          const SizedBox(width: 16),
-                          Text(
-                            'Loot collected: \$$_currentRunCredits',
-                            style: const TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-
-                    // Terminal Radio Log screen
+                    // Log radio dispatch screen
                     Container(
-                      height: 72,
+                      height: 76,
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         color: const Color(0xFF04060C),
@@ -853,7 +892,7 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
                           Color logColor = const Color(0xFF38BDF8);
                           if (text.contains('[ALERT]') || text.contains('[WARNING]') || text.contains('[ALARM]')) {
                             logColor = const Color(0xFFF43F5E);
-                          } else if (text.contains('[SUCCESS]')) {
+                          } else if (text.contains('[DATABASE]') || text.contains('[SUCCESS]')) {
                             logColor = const Color(0xFF10B981);
                           } else if (text.contains('[UPGRADE]')) {
                             logColor = const Color(0xFFA855F7);
@@ -873,38 +912,9 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
                     ),
                     const SizedBox(height: 16),
 
-                    // Mission Contract Targets
+                    // Upgrades shop catalog
                     const Text(
-                      'AVAILABLE TARGET CONTRACTS:',
-                      style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _missionContractCard('ATM Port', '\$150', 'Risk: None', () => _startHeist('ATM Port', 150, 0)),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _missionContractCard('Armored Van', '\$800', 'Risk: 1 Star', () => _startHeist('Armored Van', 800, 1)),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _missionContractCard('Giga-Bank Heist', '\$4000', 'Risk: 2 Stars', () => _startHeist('Giga-Bank Heist', 4000, 2)),
-                        ),
-                        if (militaryResponse) ...[
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _missionContractCard('Military Vault', '\$15000', 'Risk: 3 Stars', () => _startHeist('Military Vault', 15000, 3)),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Shop and upgrades
-                    const Text(
-                      'NETRUNNER BLACK MARKET:',
+                      'BLACK MARKET NETRUNNER SHOP:',
                       style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
@@ -915,25 +925,25 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: _shopItemCard('Decoy Key', '\$$decoyCost', 'Saves Hack', _cash >= decoyCost ? _buyDecoy : null, Icons.vpn_lock),
+                          child: _shopItemCard('VPN Decoy Shield', '\$$decoyCost', 'Saves Crashes', _cash >= decoyCost ? _buyDecoy : null, Icons.vpn_lock),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: _shopItemCard('Node Rig', '\$$rigCost', 'x$_clickMult speed', _cash >= rigCost ? _buyCpuRig : null, Icons.hardware),
+                          child: _shopItemCard('Node Overclock', '\$$rigCost', 'Boost speed', _cash >= rigCost ? _buyCpuRig : null, Icons.speed),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
 
-                    // Action buttons (Wipe Heat, Reset Safehouse)
+                    // Action buttons (Bribe / Prestige)
                     Row(
                       children: [
                         if (_heat > 0)
                           Expanded(
                             child: ElevatedButton.icon(
                               onPressed: _cash >= bribeCost ? _clearHeat : null,
-                              icon: const Icon(Icons.security, size: 14),
-                              label: Text('Wipe Security Trace (\$$bribeCost)', style: const TextStyle(fontSize: 11)),
+                              icon: const Icon(Icons.gavel, size: 14),
+                              label: Text('Bribe Security Core (\$$bribeCost)', style: const TextStyle(fontSize: 11)),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFFF43F5E),
                                 foregroundColor: Colors.white,
@@ -946,7 +956,7 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
                           Expanded(
                             child: ElevatedButton.icon(
                               onPressed: _escapePrestige,
-                              icon: const Icon(Icons.rocket_launch, size: 14),
+                              icon: const Icon(Icons.vpn_key_sharp, size: 14),
                               label: const Text('Relocate Safehouse (Prestige)', style: TextStyle(fontSize: 11)),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFFA855F7),
@@ -961,7 +971,7 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
                   ],
                 ),
 
-                // Floating numbers popup animations
+                // Floating points text
                 ..._floaters.map((f) {
                   return Positioned(
                     left: f.position.dx,
@@ -1019,47 +1029,6 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
     );
   }
 
-  Widget _directionButton(IconData icon, VoidCallback onTap) {
-    return SizedBox(
-      width: 32,
-      height: 32,
-      child: IconButton(
-        onPressed: onTap,
-        icon: Icon(icon, size: 16),
-        color: const Color(0xFF00F5FF),
-        style: IconButton.styleFrom(
-          backgroundColor: const Color(0xFF0F1122),
-          side: const BorderSide(color: Color(0xFF1E293B)),
-          padding: EdgeInsets.zero,
-        ),
-      ),
-    );
-  }
-
-  Widget _missionContractCard(String title, String payout, String risk, VoidCallback onTap) {
-    return InkWell(
-      onTap: _isPlaying ? null : onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: _isPlaying ? const Color(0xFF0A0C14) : const Color(0xFF0F1122),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _isPlaying ? const Color(0xFF1E293B) : const Color(0xFF00F5FF).withOpacity(0.4)),
-        ),
-        child: Column(
-          children: [
-            Text(title, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-            const SizedBox(height: 4),
-            Text(payout, style: const TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 2),
-            Text(risk, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 8)),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _shopItemCard(String title, String cost, String effect, VoidCallback? onTap, IconData icon) {
     final isEnabled = onTap != null;
     return InkWell(
@@ -1086,5 +1055,167 @@ class _MinigameWidgetState extends State<MinigameWidget> with TickerProviderStat
         ),
       ),
     );
+  }
+}
+
+// Custom Painter for 60fps neon physics game
+class CyberGamePainter extends CustomPainter {
+  final double ballY;
+  final double ballRadius;
+  final List<LaserGate> gates;
+  final List<CyberShard> shards;
+  final List<SentryDrone> drones;
+  final List<GameParticle> particles;
+  final bool invincible;
+  final double time;
+  final bool militaryEnabled;
+
+  CyberGamePainter({
+    required this.ballY,
+    required this.ballRadius,
+    required this.gates,
+    required this.shards,
+    required this.drones,
+    required this.particles,
+    required this.invincible,
+    required this.time,
+    required this.militaryEnabled,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 1. Grid Background
+    final gridPaint = Paint()
+      ..color = const Color(0xFF00F5FF).withOpacity(0.04)
+      ..strokeWidth = 1.0;
+
+    for (double i = 0; i < size.width; i += 24) {
+      canvas.drawLine(Offset(i, 0), Offset(i, size.height), gridPaint);
+    }
+    for (double i = 0; i < size.height; i += 24) {
+      canvas.drawLine(Offset(0, i), Offset(size.width, i), gridPaint);
+    }
+
+    // Laser lines scrolling indicator
+    final laserIndicatorY = (time * 50.0) % size.height;
+    canvas.drawLine(
+      Offset(0, laserIndicatorY),
+      Offset(size.width, laserIndicatorY),
+      Paint()..color = const Color(0xFF00F5FF).withOpacity(0.06)..strokeWidth = 1.5,
+    );
+
+    // 2. Render Laser Gates
+    final gateFillPaint = Paint()..color = const Color(0xFF0A1E3F);
+    final gateOutlinePaint = Paint()
+      ..color = const Color(0xFF00F5FF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    final dangerLaserPaint = Paint()
+      ..color = const Color(0xFFF43F5E)
+      ..strokeWidth = 1.5;
+
+    for (final gate in gates) {
+      // Top wall
+      final topRect = Rect.fromLTWH(gate.x, 0, gate.width, gate.gapTop);
+      canvas.drawRect(topRect, gateFillPaint);
+      canvas.drawRect(topRect, gateOutlinePaint);
+
+      // Bottom wall
+      final bottomRect = Rect.fromLTWH(gate.x, gate.gapTop + gate.gapHeight, gate.width, size.height - (gate.gapTop + gate.gapHeight));
+      canvas.drawRect(bottomRect, gateFillPaint);
+      canvas.drawRect(bottomRect, gateOutlinePaint);
+
+      // Draw red laser beams between the gaps!
+      canvas.drawLine(
+        Offset(gate.x, gate.gapTop),
+        Offset(gate.x, gate.gapTop + gate.gapHeight),
+        dangerLaserPaint,
+      );
+      canvas.drawLine(
+        Offset(gate.x + gate.width, gate.gapTop),
+        Offset(gate.x + gate.width, gate.gapTop + gate.gapHeight),
+        dangerLaserPaint,
+      );
+    }
+
+    // 3. Render Shards (Diamonds)
+    final shardPaint = Paint()..color = const Color(0xFF10B981);
+    for (final shard in shards) {
+      canvas.save();
+      canvas.translate(shard.x, shard.y);
+      canvas.rotate(shard.angle);
+
+      final path = Path()
+        ..moveTo(0, -7)
+        ..lineTo(5, 0)
+        ..lineTo(0, 7)
+        ..lineTo(-5, 0)
+        ..close();
+
+      canvas.drawPath(path, shardPaint);
+      
+      // outer neon glow ring
+      canvas.drawCircle(Offset.zero, 11, Paint()
+        ..color = const Color(0xFF10B981).withOpacity(0.2)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0);
+
+      canvas.restore();
+    }
+
+    // 4. Render Military Drones
+    if (militaryEnabled) {
+      final dronePaint = Paint()..color = const Color(0xFFEF4444);
+      final droneShieldPaint = Paint()
+        ..color = const Color(0xFFEF4444).withOpacity(0.3)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
+
+      for (final drone in drones) {
+        canvas.drawCircle(Offset(drone.x, drone.y), 6.5, dronePaint);
+        // glowing warning rings
+        canvas.drawCircle(Offset(drone.x, drone.y), 11.0, droneShieldPaint);
+      }
+    }
+
+    // 5. Render Particle Sparks
+    for (final p in particles) {
+      final particlePaint = Paint()..color = p.color.withOpacity(p.life.clamp(0.0, 1.0));
+      canvas.drawCircle(Offset(p.x, p.y), 2.0 * p.life, particlePaint);
+    }
+
+    // 6. Render Cyber Ball (Player)
+    final double _ballX = 70.0;
+    if (!invincible || (time * 10.0).toInt() % 2 == 0) {
+      final ballPaint = Paint()
+        ..shader = const RadialGradient(
+          colors: [Color(0xFFE0F7FA), Color(0xFF00F5FF)],
+        ).createShader(Rect.fromCircle(center: Offset(_ballX, ballY), radius: ballRadius));
+
+      final glowPaint = Paint()
+        ..color = const Color(0xFF00F5FF).withOpacity(0.4)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0);
+
+      // outer glow
+      canvas.drawCircle(Offset(_ballX, ballY), ballRadius + 4.0, glowPaint);
+      // solid core
+      canvas.drawCircle(Offset(_ballX, ballY), ballRadius, ballPaint);
+
+      // Direction indicator pip
+      canvas.drawCircle(
+        Offset(_ballX + 4.0, ballY - 2.0),
+        2.0,
+        Paint()..color = Colors.white,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CyberGamePainter oldDelegate) {
+    return oldDelegate.ballY != ballY ||
+        oldDelegate.gates.length != gates.length ||
+        oldDelegate.particles.length != particles.length ||
+        oldDelegate.time != time;
   }
 }
