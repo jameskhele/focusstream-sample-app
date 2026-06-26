@@ -20,7 +20,9 @@ class Session extends ChangeNotifier {
 
     try {
       final connection = await authCall();
-      debugPrint(successMsg);
+      if (kDebugMode) {
+        debugPrint(successMsg);
+      }
 
       client = connection.client;
       sdkSession = connection.session;

@@ -18,9 +18,6 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    // Default smoke/test user for convenient onboarding
-    _emailController.text = 'smoketest@dartstream.test';
-    _passwordController.text = 'smoke123';
   }
 
   @override

@@ -16,7 +16,9 @@ class CloudSaveService {
     required String userId,
     required String tenantId,
   }) async {
-    debugPrint('CloudSaveService.loadWorkspace slotKey=$slotKey');
+    if (kDebugMode) {
+      debugPrint('CloudSaveService.loadWorkspace slotKey=$slotKey');
+    }
     final snapshot = await client.experience.loadCloudSave(
       session,
       scope: const DartStreamScope(
@@ -27,20 +29,26 @@ class CloudSaveService {
     );
 
     if (snapshot == null) {
-      debugPrint('CloudSaveService.loadWorkspace snapshot=null');
+      if (kDebugMode) {
+        debugPrint('CloudSaveService.loadWorkspace snapshot=null');
+      }
       return null;
     }
 
     final snapshotData = snapshot['snapshot'];
     if (snapshotData is! Map) {
-      debugPrint('CloudSaveService.loadWorkspace snapshotData invalid');
+      if (kDebugMode) {
+        debugPrint('CloudSaveService.loadWorkspace snapshotData invalid');
+      }
       return null;
     }
 
     final payload = snapshotData['payload'];
     if (payload is Map) {
       final workspace = WorkspaceData.fromJson(Map<String, dynamic>.from(payload));
-      debugPrint('CloudSaveService.loadWorkspace parsedWorkspace: tasksCount=${workspace.tasks.length}');
+      if (kDebugMode) {
+        debugPrint('CloudSaveService.loadWorkspace parsedWorkspace: tasksCount=${workspace.tasks.length}');
+      }
       return workspace;
     }
     return null;
@@ -51,7 +59,9 @@ class CloudSaveService {
     required String tenantId,
     required WorkspaceData workspace,
   }) async {
-    debugPrint('CloudSaveService.saveWorkspace slotKey=$slotKey');
+    if (kDebugMode) {
+      debugPrint('CloudSaveService.saveWorkspace slotKey=$slotKey');
+    }
     final resp = await client.experience.saveCloudSave(
       session,
       scope: const DartStreamScope(
@@ -61,6 +71,8 @@ class CloudSaveService {
       slotKey: slotKey,
       payload: workspace.toJson(),
     );
-    debugPrint('CloudSaveService.saveWorkspace response status: $resp');
+    if (kDebugMode) {
+      debugPrint('CloudSaveService.saveWorkspace response status: $resp');
+    }
   }
 }

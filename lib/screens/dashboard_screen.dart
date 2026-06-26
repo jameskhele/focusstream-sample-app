@@ -43,6 +43,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String get _userId => widget.session.userId!;
   String get _tenantId => widget.session.tenantId!;
 
+  bool _isFeatureEnabled(String flagKey) {
+    for (final f in _liveFeatureFlags) {
+      if (f is Map) {
+        final key = f['key'] ?? f['flag_key'] ?? f['flagKey'];
+        if (key == flagKey) {
+          final enabled = f['enabled'] ?? f['value'] ?? false;
+          return enabled == true || enabled == 'true';
+        }
+      }
+    }
+    return false;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -164,9 +177,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _resetTimer() {
     _timer?.cancel();
+    final breakMinutes = _isFeatureEnabled('extended-break') ? 10 : 5;
     setState(() {
       _timerRunning = false;
-      _secondsRemaining = _timerMode == 'Focus' ? 25 * 60 : 5 * 60;
+      _secondsRemaining = _timerMode == 'Focus' ? 25 * 60 : breakMinutes * 60;
     });
     _log('Focus Timer reset.');
   }
@@ -190,9 +204,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _triggerCloudSave();
 
       // Switch to break mode
+      final breakMinutes = _isFeatureEnabled('extended-break') ? 10 : 5;
       setState(() {
         _timerMode = 'Break';
-        _secondsRemaining = 5 * 60;
+        _secondsRemaining = breakMinutes * 60;
       });
     } else {
       _log('Break session completed! Back to focus.');
@@ -425,8 +440,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _timerWidget() {
     final minutes = (_secondsRemaining / 60).floor().toString().padLeft(2, '0');
     final seconds = (_secondsRemaining % 60).toString().padLeft(2, '0');
+    final premiumTheme = _isFeatureEnabled('premium-timer-theme');
 
     return Card(
+      shape: premiumTheme
+          ? RoundedRectangleBorder(
+              side: const BorderSide(color: Color(0xFF6366F1), width: 2),
+              borderRadius: BorderRadius.circular(12),
+            )
+          : null,
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
