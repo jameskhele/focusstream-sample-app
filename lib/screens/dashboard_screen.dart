@@ -4,6 +4,7 @@ import 'package:dartstream_client/dartstream_client.dart';
 import '../models/workspace_data.dart';
 import '../services/cloud_save_service.dart';
 import '../state/session.dart';
+import 'minigame_widget.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key, required this.session});
@@ -430,6 +431,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           const SizedBox(height: 24),
+          // Playable Mini-game wired to live services
+          MinigameWidget(
+            session: widget.session,
+            workspace: _workspace,
+            featureFlags: _liveFeatureFlags,
+            onWorkspaceChanged: (updated) {
+              setState(() {
+                _workspace = updated;
+              });
+              _triggerCloudSave();
+            },
+          ),
+          const SizedBox(height: 24),
           // Kanban Task Board
           _kanbanBoardWidget(),
         ],
@@ -641,6 +655,195 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  void _showCreateFlagDialog() {
+    final keyController = TextEditingController();
+    bool enabledValue = true;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E2130),
+              title: const Text('Add Live Feature Flag', style: TextStyle(color: Colors.white)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: keyController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. game-double-multiplier',
+                      labelText: 'Flag Key',
+                      labelStyle: TextStyle(color: Colors.grey),
+                      hintStyle: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Enabled:', style: TextStyle(color: Colors.white)),
+                      Switch(
+                        value: enabledValue,
+                        activeThumbColor: const Color(0xFF6366F1),
+                        onChanged: (val) {
+                          setDialogState(() {
+                            enabledValue = val;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final key = keyController.text.trim();
+                    if (key.isEmpty) return;
+                    
+                    final newFlag = {'key': key, 'enabled': enabledValue};
+                    setState(() {
+                      _liveFeatureFlags = [..._liveFeatureFlags, newFlag];
+                    });
+                    
+                    Navigator.pop(context);
+                    _log('Feature Flag "$key" set to $enabledValue.');
+                  },
+                  child: const Text('Add'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showWriteDatabaseEntryDialog() {
+    final keyController = TextEditingController();
+    final valController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E2130),
+          title: const Text('Write Database Entry', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: keyController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: '/database/key_path',
+                  labelText: 'Key Path',
+                  labelStyle: TextStyle(color: Colors.grey),
+                  hintStyle: TextStyle(color: Colors.grey),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: valController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: 'Value text or JSON',
+                  labelText: 'Value',
+                  labelStyle: TextStyle(color: Colors.grey),
+                  hintStyle: TextStyle(color: Colors.grey),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final path = keyController.text.trim();
+                final val = valController.text.trim();
+                if (path.isEmpty || val.isEmpty) return;
+
+                Navigator.pop(context);
+                _log('Writing database entry to $path...');
+                try {
+                  await _client.persistence.create(path, session: _sdkSession, body: {'value': val});
+                  _log('Database entry written.');
+                  final db = await _client.persistence.list('/database/', session: _sdkSession);
+                  setState(() {
+                    _liveDatabase = db;
+                  });
+                } catch (e) {
+                  _log('Database write failed: $e');
+                }
+              },
+              child: const Text('Write'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showPublishChannelMessageDialog() {
+    final msgController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E2130),
+          title: const Text('Publish Stream Message', style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: msgController,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: 'Message payload details...',
+              labelText: 'Message payload',
+              labelStyle: TextStyle(color: Colors.grey),
+              hintStyle: TextStyle(color: Colors.grey),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final msg = msgController.text.trim();
+                if (msg.isEmpty) return;
+
+                Navigator.pop(context);
+                _log('Publishing message to streaming channels...');
+                try {
+                  await _logReactiveEvent('user.broadcast.message', {'message': msg});
+                  setState(() {
+                    if (!_liveChannels.contains('user.broadcast.message')) {
+                      _liveChannels = [..._liveChannels, 'user.broadcast.message'];
+                    }
+                  });
+                } catch (e) {
+                  _log('Publish stream failed: $e');
+                }
+              },
+              child: const Text('Publish'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _apiExplorerView() {
     return Container(
       color: const Color(0xFF151824),
@@ -655,10 +858,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 _explorerSection('Workspace Logs', _logsListWidget()),
                 _explorerSection('Experience Profile', _profileWidget()),
-                _explorerSection('Feature Flags (${_liveFeatureFlags.length})', _flagsWidget()),
+                _explorerSection(
+                  'Feature Flags (${_liveFeatureFlags.length})', 
+                  _flagsWidget(),
+                  actionIcon: Icons.add,
+                  onAction: _showCreateFlagDialog,
+                ),
                 _explorerSection('Inventory (${_liveInventory.length})', _inventoryWidget()),
-                _explorerSection('Streaming Channels (${_liveChannels.length})', _channelsWidget()),
-                _explorerSection('Persistence Entries (${_liveDatabase.length})', _databaseWidget()),
+                _explorerSection(
+                  'Streaming Channels (${_liveChannels.length})', 
+                  _channelsWidget(),
+                  actionIcon: Icons.publish,
+                  onAction: _showPublishChannelMessageDialog,
+                ),
+                _explorerSection(
+                  'Persistence Entries (${_liveDatabase.length})', 
+                  _databaseWidget(),
+                  actionIcon: Icons.edit,
+                  onAction: _showWriteDatabaseEntryDialog,
+                ),
               ],
             ),
           ),
@@ -667,9 +885,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _explorerSection(String title, Widget child) {
+  Widget _explorerSection(String title, Widget child, {IconData? actionIcon, VoidCallback? onAction}) {
     return ExpansionTile(
-      title: Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+      title: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          if (actionIcon != null && onAction != null)
+            IconButton(
+              icon: Icon(actionIcon, size: 16, color: const Color(0xFF6366F1)),
+              onPressed: onAction,
+              constraints: const BoxConstraints(),
+              padding: EdgeInsets.zero,
+            ),
+        ],
+      ),
       childrenPadding: const EdgeInsets.all(8),
       children: [child],
     );

@@ -54,6 +54,9 @@ class WorkspaceData {
   final int focusSessions;
   final int lifetimeFocusMinutes;
   final String themeName;
+  final int gameScore;
+  final int gameCores;
+  final int gameMultiplier;
 
   const WorkspaceData({
     required this.tasks,
@@ -61,6 +64,9 @@ class WorkspaceData {
     required this.focusSessions,
     required this.lifetimeFocusMinutes,
     required this.themeName,
+    required this.gameScore,
+    required this.gameCores,
+    required this.gameMultiplier,
   });
 
   factory WorkspaceData.empty() {
@@ -70,6 +76,9 @@ class WorkspaceData {
       focusSessions: 0,
       lifetimeFocusMinutes: 0,
       themeName: 'Default Blue',
+      gameScore: 0,
+      gameCores: 0,
+      gameMultiplier: 1,
     );
   }
 
@@ -81,6 +90,9 @@ class WorkspaceData {
       focusSessions: json['focusSessions'] ?? 0,
       lifetimeFocusMinutes: json['lifetimeFocusMinutes'] ?? 0,
       themeName: json['themeName'] ?? 'Default Blue',
+      gameScore: json['gameScore'] ?? 0,
+      gameCores: json['gameCores'] ?? 0,
+      gameMultiplier: json['gameMultiplier'] ?? 1,
     );
   }
 
@@ -91,6 +103,9 @@ class WorkspaceData {
       'focusSessions': focusSessions,
       'lifetimeFocusMinutes': lifetimeFocusMinutes,
       'themeName': themeName,
+      'gameScore': gameScore,
+      'gameCores': gameCores,
+      'gameMultiplier': gameMultiplier,
     };
   }
 
@@ -100,6 +115,9 @@ class WorkspaceData {
     int? focusSessions,
     int? lifetimeFocusMinutes,
     String? themeName,
+    int? gameScore,
+    int? gameCores,
+    int? gameMultiplier,
   }) {
     return WorkspaceData(
       tasks: tasks ?? this.tasks,
@@ -107,6 +125,9 @@ class WorkspaceData {
       focusSessions: focusSessions ?? this.focusSessions,
       lifetimeFocusMinutes: lifetimeFocusMinutes ?? this.lifetimeFocusMinutes,
       themeName: themeName ?? this.themeName,
+      gameScore: gameScore ?? this.gameScore,
+      gameCores: gameCores ?? this.gameCores,
+      gameMultiplier: gameMultiplier ?? this.gameMultiplier,
     );
   }
 }

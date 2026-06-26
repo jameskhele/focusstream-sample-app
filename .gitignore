@@ -3,6 +3,7 @@
 .packages
 .pub-cache/
 .pub/
+node_modules/
 
 # Flutter/Web build artifacts
 build/
