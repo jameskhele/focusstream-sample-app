@@ -99,7 +99,12 @@ flutter run -d chrome --web-port=3000 --dart-define=FIREBASE_API_KEY=YOUR_FIREBA
 * **Authentication**: Login/signup screen integrated with Firebase Identity Toolkit REST APIs.
 * **Workspace Kanban Board**: Dynamically auto-saves the entire board layout (tasks, project filters) as a cloud save snapshot under slot key `focusstream`.
 * **Pomodoro Timer**: Completing a timer session updates lifetime statistics, logs a `focus.session.completed` reactive event, and autosaves the state.
-* **Live Explorer**: Side rail display showing live feature flags, profiles details, user sessions, database entries, and channels.
+* **Cyber Ball Gravity Hacker Game**: A 60fps CustomPainter physics arcade minigame demonstrating live DartStream integrations:
+  * **Feature Flags**: Evaluates `easy-hack-mode` (lowers gravity / widens gates), `double-loot` (doubles cash shard yields), and `game-military-response` (spawns flying sentinel drone hazards).
+  * **Cloud Save**: Debounced sync of high scores, prestige level, cash reserves, and active upgrades to the backend.
+  * **Event Telemetry**: Streams real-time `game.started`, `game.checkpoint`, and `game.over` events with performance payloads.
+  * **Database Persistence**: Writes purchases, bribing operations, and safehouse re-locations directly to the persistent store.
+* **Live Explorer**: Side rail display showing live feature flags, profile details, user sessions, database entries, and channels.
 
 ---
 
