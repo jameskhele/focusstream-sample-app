@@ -135,3 +135,40 @@ firebase deploy --only hosting
 ```
 
 Make sure your local `.env` contains the `FIREBASE_API_KEY` and that the CI environment variables are set.
+
+---
+
+## OAuth2 / Machine-to-Machine (`bin/oauth2_deepdive.dart`)
+
+Every other script and the Flutter client sign in a human (Firebase ID token). DartStream also supports a **server-to-server** path (GitLab #96): create an Application in the dashboard → mint a `clientId` + `clientSecret` → exchange them for a DartStream-signed Bearer JWT and call any service with no logged-in user. This is how a backend, CLI, or CI job connects to a real project.
+
+### Step 1 — Create an Application and copy its credentials
+
+In the DartStream dashboard go to **Settings → Applications → Create OAuth2 Client**. Give it a name, pick the scopes you need, and leave the **Expiry Date BLANK** (a same-day or past date mints an already-expired client). On save you get a `clientId` and a `clientSecret` — the secret is shown **once**, so copy both now.
+
+### Step 2 — Put the credentials in your local `.env`
+
+The `.env` file is gitignored; never commit the secret.
+
+```env
+OAUTH2_CLIENT_ID=client_...
+OAUTH2_CLIENT_SECRET=secret_...
+API_BILLING=https://dev-apibilling.dartstream.io
+# OAUTH2_SCOPE=platform:read flags:read projects:read   # optional subset
+```
+
+### Step 3 — Run the deep-dive
+
+```bash
+# Linux / Mac
+set -a && source .env && set +a
+dart run bin/oauth2_deepdive.dart
+
+# PowerShell (Windows)
+Get-Content .env | ForEach-Object { if ($_ -match '^([^#=]+)=(.*)$') { [System.Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), 'Process') } }
+dart run bin/oauth2_deepdive.dart
+```
+
+**What it does:** POSTs `grant_type=client_credentials` to `/api/v1/oauth2/token` (credentials over HTTP Basic), decodes the returned JWT's tenant + scope claims, then calls platform / experience / reactive / persistence with only that Bearer token — no Firebase ID token, no X-Tenant-ID header — and prints a PASS/FAIL/SKIP table.
+
+⚠️ The `clientSecret` is **confidential**: backends / CLIs / CI only, **never** a browser or Flutter bundle. Public web/Flutter apps keep using the Firebase end-user login path.
