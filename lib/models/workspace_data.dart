@@ -57,6 +57,11 @@ class WorkspaceData {
   final int gameScore;
   final int gameCores;
   final int gameMultiplier;
+  final int tycoonSeniors;
+  final int tycoonAiPilots;
+  final int tycoonServers;
+  final int tycoonPrestige;
+  final String tycoonUpgrades; // comma-separated upgrades
 
   const WorkspaceData({
     required this.tasks,
@@ -67,6 +72,11 @@ class WorkspaceData {
     required this.gameScore,
     required this.gameCores,
     required this.gameMultiplier,
+    required this.tycoonSeniors,
+    required this.tycoonAiPilots,
+    required this.tycoonServers,
+    required this.tycoonPrestige,
+    required this.tycoonUpgrades,
   });
 
   factory WorkspaceData.empty() {
@@ -79,6 +89,11 @@ class WorkspaceData {
       gameScore: 0,
       gameCores: 0,
       gameMultiplier: 1,
+      tycoonSeniors: 0,
+      tycoonAiPilots: 0,
+      tycoonServers: 0,
+      tycoonPrestige: 0,
+      tycoonUpgrades: '',
     );
   }
 
@@ -93,6 +108,11 @@ class WorkspaceData {
       gameScore: json['gameScore'] ?? 0,
       gameCores: json['gameCores'] ?? 0,
       gameMultiplier: json['gameMultiplier'] ?? 1,
+      tycoonSeniors: json['tycoonSeniors'] ?? 0,
+      tycoonAiPilots: json['tycoonAiPilots'] ?? 0,
+      tycoonServers: json['tycoonServers'] ?? 0,
+      tycoonPrestige: json['tycoonPrestige'] ?? 0,
+      tycoonUpgrades: json['tycoonUpgrades'] ?? '',
     );
   }
 
@@ -106,6 +126,11 @@ class WorkspaceData {
       'gameScore': gameScore,
       'gameCores': gameCores,
       'gameMultiplier': gameMultiplier,
+      'tycoonSeniors': tycoonSeniors,
+      'tycoonAiPilots': tycoonAiPilots,
+      'tycoonServers': tycoonServers,
+      'tycoonPrestige': tycoonPrestige,
+      'tycoonUpgrades': tycoonUpgrades,
     };
   }
 
@@ -118,6 +143,11 @@ class WorkspaceData {
     int? gameScore,
     int? gameCores,
     int? gameMultiplier,
+    int? tycoonSeniors,
+    int? tycoonAiPilots,
+    int? tycoonServers,
+    int? tycoonPrestige,
+    String? tycoonUpgrades,
   }) {
     return WorkspaceData(
       tasks: tasks ?? this.tasks,
@@ -128,6 +158,11 @@ class WorkspaceData {
       gameScore: gameScore ?? this.gameScore,
       gameCores: gameCores ?? this.gameCores,
       gameMultiplier: gameMultiplier ?? this.gameMultiplier,
+      tycoonSeniors: tycoonSeniors ?? this.tycoonSeniors,
+      tycoonAiPilots: tycoonAiPilots ?? this.tycoonAiPilots,
+      tycoonServers: tycoonServers ?? this.tycoonServers,
+      tycoonPrestige: tycoonPrestige ?? this.tycoonPrestige,
+      tycoonUpgrades: tycoonUpgrades ?? this.tycoonUpgrades,
     );
   }
 }
